@@ -1,0 +1,19 @@
+{
+  "name": "lumi-bookkeeping",
+  "version": "0.1.0",
+  "description": "Cloud-based bookkeeping software for a bookkeeping practice and its clients.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1"
+  }
+}

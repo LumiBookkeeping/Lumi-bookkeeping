@@ -1,0 +1,15 @@
+{
+  "name": "lumi-bookkeeping-lite",
+  "version": "1.0.0",
+  "description": "Lumi Bookkeeping Lite — plain-English bookkeeping for sole traders, with VAT returns and Making Tax Digital for Income Tax.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "bcryptjs": "^2.4.3"
+  }
+}
