@@ -7,13 +7,20 @@
   "scripts": {
     "start": "node server.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:pg": "node scripts/migrate-to-postgres.js",
+    "db:smoke": "node scripts/db-smoke.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
+    "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
-    "multer": "^1.4.5-lts.1"
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "pg-mem": "^3.0.14"
   }
 }

@@ -1,0 +1,20 @@
+# Render Blueprint for Lumi Bookkeeping.
+# In Render: New > Blueprint > connect this repo, then paste DATABASE_URL when prompted.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: lumi-bookkeeping
+    runtime: node
+    region: frankfurt          # EU region — keeps client data in the EU (UK GDPR)
+    plan: free                 # upgrade to "starter" for no spin-down + a persistent disk
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true    # Render generates a strong secret for you
+      - key: DATABASE_URL
+        sync: false            # paste your Neon connection string in the dashboard

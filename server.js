@@ -1,4 +1,5 @@
-// Lumi Bookkeeping — cloud bookkeeping server (Express + JSON datastore).
+// Lumi Bookkeeping — cloud bookkeeping server (Express + Postgres/JSON datastore).
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
@@ -15,9 +16,11 @@ const inventory = require('./lib/inventory');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const UPLOAD_DIR = path.join(__dirname, 'data', 'uploads');
+const PROD = process.env.NODE_ENV === 'production';
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'data', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+if (PROD) app.set('trust proxy', 1); // the host (Render/Fly/…) terminates TLS
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -26,7 +29,7 @@ app.use(
     secret: process.env.SESSION_SECRET || 'lumi-dev-secret-change-me',
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
+    cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 1000 * 60 * 60 * 8 },
   })
 );
 
@@ -1820,13 +1823,38 @@ function seedTaxRates(orgId) {
   for (const [name, rate] of rates) store.insert('taxRates', { orgId, name, rate, archived: false });
 }
 
+// Health check for hosting platforms (public, no auth).
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true, backend: store.isPg() ? 'postgres' : 'json', uptime: Math.round(process.uptime()) });
+});
+
 // ===================== STATIC FRONTEND =====================
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`\n  Lumi Bookkeeping running →  http://localhost:${PORT}\n`);
+  (async () => {
+    if (PROD && !process.env.SESSION_SECRET) console.warn('  WARNING: SESSION_SECRET is not set — using an insecure default. Set it before going live.');
+    const info = await store.init();
+    if (info.backend === 'postgres') console.log(`  Data: PostgreSQL — ${info.rows} rows loaded`);
+    else console.log('  Data: local JSON file (set DATABASE_URL to use Postgres)');
+
+    const server = app.listen(PORT, () => {
+      console.log(`\n  Lumi Bookkeeping running →  http://localhost:${PORT}\n`);
+    });
+
+    // On shutdown, flush any pending Postgres writes before exiting.
+    const shutdown = async (sig) => {
+      console.log(`\n  ${sig} — flushing pending writes…`);
+      try { await store.flush(); } catch (e) {}
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 3000).unref();
+    };
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  })().catch((err) => {
+    console.error('Failed to start Lumi Bookkeeping:', err);
+    process.exit(1);
   });
 }
 
