@@ -56,12 +56,18 @@ const App = (() => {
     items: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
     po: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/>',
     expenses: '<path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/>',
+    lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    paperclip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+    alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
   };
   ICONS.search = '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>';
   ICONS.invoices = ICONS.sales;
   ICONS.aged = ICONS.audit;
   ICONS.tracking = ICONS.budget;
+  ICONS.clock = ICONS.audit;
   const icon = (name, size = 18) => `<svg class="ic-svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+  const iconInline = (name, size = 13) => `<span class="ic-inline">${icon(name, size)}</span>`;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
   // Inline sparkline SVG from a series of values.
@@ -171,7 +177,8 @@ const App = (() => {
     el.innerHTML = '';
     const card = h(`
       <div class="login-wrap"><div class="login-card">
-        <div class="brand-row"><div class="logo-dot">L</div><div class="brand-name">Lumi Bookkeeping</div></div>
+        <img class="login-logo" src="/lumi-logo.png" alt="Lumi Accountancy" />
+        <div class="login-eyebrow">Bookkeeping</div>
         <div class="login-sub">Sign in to your books</div>
         <form id="loginForm">
           <label>Email</label>
@@ -226,7 +233,7 @@ const App = (() => {
     const shell = h(`
       <div class="shell">
         <aside class="sidebar">
-          <div class="brand-row"><div class="logo-dot">L</div><div class="brand-name">Lumi</div></div>
+          <div class="sidebar-brand"><img class="side-logo" src="/lumi-logo-white.png" alt="Lumi Accountancy" /><span class="side-product">Bookkeeping</span></div>
           <nav id="nav"></nav>
           <div class="sidebar-foot">
             ${isBk ? `<div class="nav-item" id="addClient"><span class="ic">${icon('user-plus')}</span> Add client</div>` : ''}
@@ -237,6 +244,7 @@ const App = (() => {
         </aside>
         <div class="main">
           <header class="topbar">
+            <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
             <h1 id="viewTitle"></h1>
             <div class="global-search"><input id="globalSearch" placeholder="Search contacts, invoices, transactions…" autocomplete="off" /><kbd class="cmdk-hint" title="Command palette">⌘K</kbd><div class="gs-results" id="gsResults"></div></div>
             <div class="org-switch">
@@ -249,6 +257,7 @@ const App = (() => {
           </header>
           <div class="content" id="content"></div>
         </div>
+        <div class="nav-overlay" id="navOverlay"></div>
       </div>`);
     el.appendChild(shell);
 
@@ -270,6 +279,14 @@ const App = (() => {
     shell.querySelector('#account').addEventListener('click', openProfileModal);
     shell.querySelector('#glossary').addEventListener('click', openGlossary);
     shell.querySelector('#quickNew').addEventListener('click', (e) => { e.stopPropagation(); openQuickMenu(e.currentTarget); });
+    // Mobile nav drawer
+    const navToggle = shell.querySelector('#navToggle');
+    const navOverlay = shell.querySelector('#navOverlay');
+    if (navToggle) navToggle.addEventListener('click', () => {
+      const open = shell.classList.toggle('nav-open');
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    if (navOverlay) navOverlay.addEventListener('click', () => { shell.classList.remove('nav-open'); if (navToggle) navToggle.setAttribute('aria-expanded', 'false'); });
     wireGlobalSearch(shell);
     wireCommandPalette();
 
@@ -281,8 +298,8 @@ const App = (() => {
     const isBk = state.user.role === 'bookkeeper';
     el.appendChild(h(`
       <div class="shell"><aside class="sidebar">
-        <div class="brand-row"><div class="logo-dot">L</div><div class="brand-name">Lumi</div></div>
-        <div class="sidebar-foot"><div class="nav-item" id="logout2"><span class="ic">⎋</span> Sign out</div></div>
+        <div class="sidebar-brand"><img class="side-logo" src="/lumi-logo-white.png" alt="Lumi Accountancy" /><span class="side-product">Bookkeeping</span></div>
+        <div class="sidebar-foot"><div class="nav-item" id="logout2"><span class="ic">${icon('logout')}</span> Sign out</div></div>
       </aside><div class="main"><div class="content">
         <div class="card"><div class="card-body empty">
           <h2>No clients yet</h2>
@@ -476,11 +493,11 @@ const App = (() => {
     const vatVal = dash.vat.refund > 0 ? dash.vat.refund : dash.vat.owed;
     c.innerHTML = '';
     c.appendChild(h(`
-      <div style="display:flex;align-items:center;margin-bottom:18px">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px">
         <div><h2 style="margin:0;font-size:16px">Welcome back, ${esc(state.user.name.split(' ')[0])}</h2>
-        <div class="subtle">${esc(currentOrg().name || '')}${currentOrg().lockDate ? ' · 🔒 locked to ' + esc(currentOrg().lockDate) : ''}</div></div>
+        <div class="subtle">${esc(currentOrg().name || '')}${currentOrg().lockDate ? ' · ' + iconInline('lock', 12) + ' Locked to ' + esc(currentOrg().lockDate) : ''}</div></div>
         <div class="spacer" style="margin-left:auto"></div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn small" id="qSale">+ Record sale</button>
           <button class="btn secondary small" id="qExpense">+ Record expense</button>
           <button class="btn secondary small" id="qInvoice">+ Invoice</button>
@@ -501,7 +518,7 @@ const App = (() => {
         : `Bank data is up to date — <b>${esc(stale.name)}</b> updated ${d === 0 ? 'today' : d + ' day' + (d > 1 ? 's' : '') + ' ago'}.`;
       const banner = h(`<div class="card" style="border-left:4px solid ${colour};background:${bgc}">
         <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 20px">
-          <span style="font-size:18px">${level === 'ok' ? '✓' : '⏱'}</span>
+          <span style="font-size:18px">${level === 'ok' ? iconInline('check', 18) : iconInline('clock', 18)}</span>
           <span style="flex:1">${msg}</span>
           ${level !== 'ok' ? '<button class="btn small" id="importNow">Import statement</button>' : ''}
         </div></div>`);
@@ -514,7 +531,7 @@ const App = (() => {
     const incSeries = trend.map((m) => m.income);
     const expSeries = trend.map((m) => m.expense);
     const stats = h(`
-      <div class="stat-cards" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat-cards">
         <div class="stat kpi clickable" data-go="profit-loss">
           <div class="kpi-head"><span class="label">Net profit · this year</span>${deltaPill(netSeries)}</div>
           <div class="value ${dash.netProfitYtd >= 0 ? 'pos' : 'neg'}">${money(dash.netProfitYtd)}</div>
@@ -618,7 +635,7 @@ const App = (() => {
     recent.forEach((t) => tb.appendChild(h(`<tr>
       <td>${esc(t.date)}</td><td>${esc(t.description)}</td><td class="subtle">${esc(t.reference || '—')}</td>
       <td class="num">${money(t.total)}</td>
-      <td>${t.attachments.length ? `📎 ${t.attachments.length}` : '<span class="subtle">—</span>'}</td></tr>`)));
+      <td>${t.attachments.length ? `${iconInline('paperclip', 13)} ${t.attachments.length}` : '<span class="subtle">—</span>'}</td></tr>`)));
     c.appendChild(card);
     card.querySelector('#newTxn').addEventListener('click', () => openTransactionModal());
   }
@@ -633,7 +650,7 @@ const App = (() => {
     const lock = currentOrg().lockDate;
     if (isBookkeeper() || lock) {
       const banner = h(`<div class="card"><div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 20px">
-        <span>${lock ? `🔒 Books locked up to <b>${esc(lock)}</b>` : 'Period not locked'}</span>
+        <span>${lock ? `${iconInline('lock', 13)} Books locked up to <b>${esc(lock)}</b>` : 'Period not locked'}</span>
         <div class="spacer" style="margin-left:auto"></div>
         ${isBookkeeper() ? '<button class="btn secondary small" id="lockBtn">Manage lock date</button>' : ''}
       </div></div>`);
@@ -661,7 +678,7 @@ const App = (() => {
     const buildRow = (t) => {
       const voided = t.status === 'void';
       const lineSummary = t.lines.map((l) => `${esc(l.accountCode)} ${l.debit ? 'Dr' : 'Cr'} ${money(l.debit || l.credit)}`).join(' · ');
-      const docs = t.attachments.map((a) => `<a class="attach-link" href="/api/orgs/${orgId}/attachments/${a.id}" target="_blank">📎 ${esc(a.originalName)}</a>`).join('<br/>') || '<span class="subtle">—</span>';
+      const docs = t.attachments.map((a) => `<a class="attach-link" href="/api/orgs/${orgId}/attachments/${a.id}" target="_blank">${iconInline('paperclip', 12)} ${esc(a.originalName)}</a>`).join('<br/>') || '<span class="subtle">—</span>';
       const srcTag = t.source && t.source !== 'manual' ? ` <span class="pill income" title="auto-posted">${esc(t.source)}</span>` : '';
       const editable = (!t.source || t.source === 'manual') && !voided && !isLocked(t.date);
       const row = h(`<tr style="${voided ? 'opacity:.5' : ''}">
@@ -764,7 +781,7 @@ const App = (() => {
     const noun = type === 'invoice' ? 'invoice' : 'bill';
     c.innerHTML = '';
     c.appendChild(h(`
-      <div class="stat-cards" style="grid-template-columns:repeat(5,1fr)">
+      <div class="stat-cards">
         <div class="stat"><div class="label">Outstanding</div><div class="value">${money(aging.total)}</div></div>
         <div class="stat"><div class="label">Not due</div><div class="value">${money(aging.buckets.current)}</div></div>
         <div class="stat"><div class="label">1–30 days</div><div class="value">${money(aging.buckets.d30)}</div></div>
@@ -915,6 +932,19 @@ const App = (() => {
     const isQuote = inv.type === 'quote';
     const isPO = inv.type === 'po';
     const title = isPO ? 'PURCHASE ORDER' : isBill ? 'BILL' : isQuote ? 'QUOTE' : 'INVOICE';
+    const showPay = !isQuote && !isPO;
+    const paid = inv.amountPaid || 0;
+    const balance = Math.round(((inv.total || 0) - paid) * 100) / 100;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let chip = '';
+    if (inv.status === 'void') chip = '<span class="chip muted">Void</span>';
+    else if (inv.status === 'converted') chip = '<span class="chip muted">Converted</span>';
+    else if (showPay && (inv.total || 0) > 0 && (inv.status === 'paid' || balance <= 0)) chip = '<span class="chip ok">Paid</span>';
+    else if (showPay && paid > 0) chip = '<span class="chip warn">Part-paid</span>';
+    else if (showPay && inv.dueDate && inv.dueDate < todayStr) chip = '<span class="chip bad">Overdue</span>';
+    else if (inv.status === 'draft') chip = '<span class="chip muted">Draft</span>';
+    else if (isQuote && inv.status === 'accepted') chip = '<span class="chip ok">Accepted</span>';
+    else if (isQuote && inv.status === 'declined') chip = '<span class="chip bad">Declined</span>';
     const rows = inv.lines.map((l) => `<tr>
       <td>${esc(l.description || l.accountName || '')}</td>
       <td class="r">${money(l.amount)}</td>
@@ -924,7 +954,7 @@ const App = (() => {
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Cormorant+Garamond:wght@600&display=swap">
     <style>
       :root{--gold:#B8922A;--charcoal:#1A1A18;--mid:#6B6860;--line:#E4DFD4;--cream:#FAF8F4}
-      *{box-sizing:border-box}body{font-family:'DM Sans',sans-serif;color:var(--charcoal);margin:0;padding:48px;font-size:13.5px;line-height:1.55}
+      *{box-sizing:border-box}body{font-family:'DM Sans',sans-serif;color:var(--charcoal);background:#fff;margin:0;padding:48px;font-size:13.5px;line-height:1.55}
       .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--gold);padding-bottom:22px;margin-bottom:26px}
       .brand{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:600}
       .muted{color:var(--mid)}.r{text-align:right}
@@ -935,10 +965,16 @@ const App = (() => {
       table{width:100%;border-collapse:collapse;margin-top:14px}
       th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mid);text-align:left;border-bottom:2px solid var(--charcoal);padding:8px 10px}
       th.r{text-align:right}td{padding:10px;border-bottom:1px solid var(--line)}
-      .totals{margin-left:auto;width:280px;margin-top:18px}
-      .totals .row{display:flex;justify-content:space-between;padding:6px 10px}
-      .totals .grand{border-top:2px solid var(--charcoal);font-weight:700;font-size:16px;margin-top:4px}
-      .foot{margin-top:40px;border-top:1px solid var(--line);padding-top:16px;color:var(--mid);font-size:12px}
+      .chip{display:inline-block;margin-top:9px;padding:3px 11px;border-radius:100px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+      .chip.ok{background:#e8f1ea;color:#3a7a52}.chip.warn{background:rgba(184,146,42,.16);color:#8a6c1d}
+      .chip.bad{background:#f6e9e9;color:#b23a3a}.chip.muted{background:#efece6;color:#6B6860}
+      .totals{margin-left:auto;width:300px;margin-top:24px;background:var(--cream);border:1px solid var(--line);border-radius:12px;padding:10px 8px}
+      .totals .row{display:flex;justify-content:space-between;padding:6px 14px}
+      .totals .grand{border-top:2px solid var(--gold);font-weight:700;font-size:16px;margin-top:4px;padding-top:11px}
+      .totals .due{font-weight:700}
+      .paybox{margin-top:30px;background:var(--cream);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:14px 18px;font-size:12.5px;white-space:pre-line}
+      .paybox .label{margin-bottom:5px}
+      .foot{margin-top:26px;border-top:1px solid var(--line);padding-top:16px;color:var(--mid);font-size:12px}
       @media print{body{padding:24px}}
     </style></head><body>
       <div class="top">
@@ -949,7 +985,8 @@ const App = (() => {
         <div class="meta"><h1>${title}</h1>
           <div><b>${esc(inv.number)}</b></div>
           <div class="muted">Issued ${esc(inv.issueDate)}</div>
-          <div class="muted">Due ${esc(inv.dueDate)}</div></div>
+          <div class="muted">${isQuote ? 'Valid until' : isPO ? 'Required by' : 'Due'} ${esc(inv.dueDate)}</div>
+          ${chip}</div>
       </div>
       <div class="parties">
         <div><div class="label">${isPO ? 'Supplier' : isBill ? 'From' : isQuote ? 'Quote for' : 'Bill to'}</div><div><b>${esc(ct ? ct.name : '')}</b></div><div class="muted">${esc(ct && ct.email ? ct.email : '')}</div></div>
@@ -959,10 +996,13 @@ const App = (() => {
       <div class="totals">
         <div class="row"><span class="muted">Subtotal</span><span>${money(inv.subtotal)}</span></div>
         <div class="row"><span class="muted">VAT</span><span>${money(inv.taxTotal)}</span></div>
-        <div class="row grand"><span>Total ${isBill ? 'due' : isQuote || isPO ? '' : 'to pay'}</span><span>${money(inv.total)}</span></div>
+        <div class="row grand"><span>Total${isQuote || isPO ? '' : isBill ? ' due' : ' to pay'}</span><span>${money(inv.total)}</span></div>
+        ${showPay && paid > 0 ? `<div class="row"><span class="muted">Amount paid</span><span>−${money(paid)}</span></div>
+        <div class="row due"><span>Balance due</span><span>${money(balance)}</span></div>` : ''}
       </div>
+      ${!isBill && !isPO && co.bankDetails ? `<div class="paybox"><div class="label">How to pay</div>${esc(co.bankDetails)}</div>` : ''}
       ${inv.notes ? `<div class="foot" style="white-space:pre-line">${esc(inv.notes)}</div>` : ''}
-      <div class="foot">${isPO ? 'Please supply the above and invoice quoting this PO number.' : isQuote ? 'This quote is valid for 30 days.' : (co.bankDetails ? 'Payment: ' + esc(co.bankDetails) + '<br>' : '') + 'Thank you for your business.'}</div>
+      <div class="foot">${isPO ? 'Please supply the above and invoice quoting this PO number.' : isQuote ? 'This quote is valid for 30 days from the issue date. We look forward to working with you.' : isBill ? 'Entered for your records.' : 'Thank you for your business.'}</div>
     </body></html>`;
   }
 
@@ -1803,12 +1843,12 @@ const App = (() => {
       const lowNeg = r.lowest.balance < 0;
 
       // Headline cards
-      c.appendChild(h(`<div class="stat-cards" style="grid-template-columns:repeat(3,1fr)">
+      c.appendChild(h(`<div class="stat-cards">
         <div class="stat"><div class="label">Cash today</div><div class="value">${money(r.openingCash)}</div></div>
         <div class="stat"><div class="label">Projected in ${horizon} ${unitWord}s</div><div class="value ${r.closingCash < 0 ? 'neg' : 'pos'}">${money(r.closingCash)}</div><div class="subtle">likely ${money(r.closingLow)} – ${money(r.closingHigh)}</div></div>
         <div class="stat"><div class="label">Lowest point</div><div class="value ${lowNeg ? 'neg' : ''}">${money(r.lowest.balance)}</div><div class="subtle">around ${esc(r.lowest.label)} · worst case ${money(r.lowestLow)}</div></div>
       </div>`));
-      if (lowNeg) c.appendChild(h(`<div class="card" style="border-left:4px solid var(--danger);background:#f6e9e9"><div class="card-body" style="padding:14px 20px">⚠ Cash is projected to go <b>negative</b> (${money(r.lowest.balance)}) around <b>${esc(r.lowest.label)}</b>. Consider chasing invoices or spreading payments.</div></div>`));
+      if (lowNeg) c.appendChild(h(`<div class="card" style="border-left:4px solid var(--danger);background:#f6e9e9"><div class="card-body" style="padding:14px 20px;display:flex;align-items:center;gap:10px"><span style="color:var(--danger);flex:0 0 auto">${iconInline('alert', 18)}</span><span>Cash is projected to go <b>negative</b> (${money(r.lowest.balance)}) around <b>${esc(r.lowest.label)}</b>. Consider chasing invoices or spreading payments.</span></div></div>`));
 
       const card = h(`
         <div class="card">
@@ -1978,7 +2018,7 @@ const App = (() => {
       const r = await api(`/api/orgs/${orgId}/reports/aging?type=${kind}&asOf=${today()}`);
       c.innerHTML = '';
       const noun = kind === 'receivable' ? 'Debtors (owed to you)' : 'Creditors (you owe)';
-      c.appendChild(h(`<div class="stat-cards" style="grid-template-columns:repeat(5,1fr)">
+      c.appendChild(h(`<div class="stat-cards">
         <div class="stat"><div class="label">Total outstanding</div><div class="value">${money(r.total)}</div></div>
         <div class="stat"><div class="label">Not yet due</div><div class="value">${money(r.buckets.current)}</div></div>
         <div class="stat"><div class="label">1–30 days</div><div class="value">${money(r.buckets.d30)}</div></div>
