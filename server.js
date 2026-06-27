@@ -486,10 +486,10 @@ app.post('/api/orgs/:orgId/inbox', auth.requireAuth, auth.requireOrg, upload.arr
   res.json({ uploaded: created.length });
 });
 
-app.get('/api/orgs/:orgId/inbox', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const items = store.filter('inbox', (x) => x.orgId === req.orgId).sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
+app.get('/api/orgs/:orgId/inbox', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const items = (await store.queryByOrg('inbox', req.orgId)).sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
   res.json({ inbox: items });
-});
+}));
 
 app.get('/api/orgs/:orgId/inbox/:id/file', auth.requireAuth, auth.requireOrg, (req, res) => {
   const item = store.find('inbox', (x) => x.id === req.params.id && x.orgId === req.orgId);
@@ -1582,11 +1582,11 @@ app.get('/api/orgs/:orgId/dashboard', auth.requireAuth, auth.requireOrg, (req, r
 });
 
 // ===================== CATEGORISATION RULES =====================
-app.get('/api/orgs/:orgId/rules', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const rules = store.filter('rules', (r) => r.orgId === req.orgId);
-  const accById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
+app.get('/api/orgs/:orgId/rules', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const rules = await store.queryByOrg('rules', req.orgId);
+  const accById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
   res.json({ rules: rules.map((r) => ({ ...r, accountName: accById.get(r.accountId)?.name, accountCode: accById.get(r.accountId)?.code })) });
-});
+}));
 app.post('/api/orgs/:orgId/rules', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { match, accountId, taxRateId, kind } = req.body;
   if (!match || !match.trim()) return res.status(400).json({ error: 'Enter text to match (e.g. a supplier name).' });
