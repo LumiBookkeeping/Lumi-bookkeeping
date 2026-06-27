@@ -20,6 +20,10 @@ const PROD = process.env.NODE_ENV === 'production';
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'data', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// Wrap async route handlers so a rejected promise reaches the error middleware
+// instead of crashing the process. Used by Stage 2 direct-SQL routes.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 if (PROD) app.set('trust proxy', 1); // the host (Render/Fly/…) terminates TLS
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -521,9 +525,9 @@ app.delete('/api/orgs/:orgId/inbox/:id', auth.requireAuth, auth.requireOrg, (req
 });
 
 // ===================== BUDGETS =====================
-app.get('/api/orgs/:orgId/budgets', auth.requireAuth, auth.requireOrg, (req, res) => {
-  res.json({ budgets: store.filter('budgets', (b) => b.orgId === req.orgId) });
-});
+app.get('/api/orgs/:orgId/budgets', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  res.json({ budgets: await store.queryByOrg('budgets', req.orgId) });
+}));
 app.put('/api/orgs/:orgId/budgets', auth.requireAuth, auth.requireOrg, (req, res) => {
   const incoming = Array.isArray(req.body.budgets) ? req.body.budgets : [];
   for (const b of incoming) {
@@ -557,9 +561,9 @@ app.get('/api/orgs/:orgId/reports/budget', auth.requireAuth, auth.requireOrg, (r
 });
 
 // ===================== TRACKING CATEGORIES =====================
-app.get('/api/orgs/:orgId/tracking', auth.requireAuth, auth.requireOrg, (req, res) => {
-  res.json({ options: store.filter('tracking', (t) => t.orgId === req.orgId).sort((a, b) => a.name.localeCompare(b.name)) });
-});
+app.get('/api/orgs/:orgId/tracking', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  res.json({ options: (await store.queryByOrg('tracking', req.orgId)).sort((a, b) => a.name.localeCompare(b.name)) });
+}));
 app.post('/api/orgs/:orgId/tracking', auth.requireAuth, auth.requireOrg, (req, res) => {
   if (!req.body.name || !req.body.name.trim()) return res.status(400).json({ error: 'Enter a name.' });
   res.json({ option: store.insert('tracking', { orgId: req.orgId, name: req.body.name.trim() }) });
@@ -778,10 +782,10 @@ app.delete('/api/orgs/:orgId/items/:id', auth.requireAuth, auth.requireOrg, (req
 });
 
 // ===================== CONTACTS (customers / suppliers) =====================
-app.get('/api/orgs/:orgId/contacts', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const contacts = store.filter('contacts', (x) => x.orgId === req.orgId).sort((a, b) => a.name.localeCompare(b.name));
+app.get('/api/orgs/:orgId/contacts', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const contacts = (await store.queryByOrg('contacts', req.orgId)).sort((a, b) => a.name.localeCompare(b.name));
   res.json({ contacts });
-});
+}));
 app.post('/api/orgs/:orgId/contacts', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { name, kind, email } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required.' });
@@ -790,10 +794,10 @@ app.post('/api/orgs/:orgId/contacts', auth.requireAuth, auth.requireOrg, (req, r
 });
 
 // ===================== TAX RATES =====================
-app.get('/api/orgs/:orgId/tax-rates', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const rates = store.filter('taxRates', (t) => t.orgId === req.orgId && !t.archived);
+app.get('/api/orgs/:orgId/tax-rates', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const rates = (await store.queryByOrg('taxRates', req.orgId)).filter((t) => !t.archived);
   res.json({ taxRates: rates });
-});
+}));
 app.post('/api/orgs/:orgId/tax-rates', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { name, rate } = req.body;
   const r = Number(rate);
@@ -1712,10 +1716,10 @@ app.post('/api/orgs/:orgId/import-bank', auth.requireAuth, auth.requireOrg, (req
 });
 
 // ===================== PAYROLL =====================
-app.get('/api/orgs/:orgId/employees', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const employees = store.filter('employees', (e) => e.orgId === req.orgId).map((e) => ({ ...e, period: payroll.calcPeriod(e) }));
+app.get('/api/orgs/:orgId/employees', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const employees = (await store.queryByOrg('employees', req.orgId)).map((e) => ({ ...e, period: payroll.calcPeriod(e) }));
   res.json({ employees });
-});
+}));
 app.post('/api/orgs/:orgId/employees', auth.requireAuth, auth.requireOrg, (req, res) => {
   if (req.user.role !== 'bookkeeper') return res.status(403).json({ error: 'Only practice staff can manage payroll.' });
   const { name, annualSalary, taxCode, niCategory, payFrequency, niNumber } = req.body;
@@ -1731,10 +1735,10 @@ app.delete('/api/orgs/:orgId/employees/:id', auth.requireAuth, auth.requireOrg, 
   res.json({ ok: true });
 });
 
-app.get('/api/orgs/:orgId/pay-runs', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const runs = store.filter('payRuns', (p) => p.orgId === req.orgId).sort((a, b) => (a.payDate < b.payDate ? 1 : -1));
+app.get('/api/orgs/:orgId/pay-runs', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const runs = (await store.queryByOrg('payRuns', req.orgId)).sort((a, b) => (a.payDate < b.payDate ? 1 : -1));
   res.json({ payRuns: runs });
-});
+}));
 
 // Run payroll for a period: compute each active employee, post the journal, store the run.
 app.post('/api/orgs/:orgId/pay-runs', auth.requireAuth, auth.requireOrg, (req, res) => {
@@ -1831,6 +1835,13 @@ app.get('/healthz', (req, res) => {
 // ===================== STATIC FRONTEND =====================
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// Error handler — turns thrown/rejected route errors into a 500 (must be last).
+app.use((err, req, res, next) => {
+  console.error('[route error]', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Server error' });
+});
 
 if (require.main === module) {
   (async () => {

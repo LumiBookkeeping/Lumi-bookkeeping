@@ -20,8 +20,11 @@ function fakePgPool() {
       let m;
       if ((m = sql.match(/CREATE TABLE IF NOT EXISTS (\w+)/i))) { tableFor(m[1]); return { rows: [] }; }
       if (/^\s*CREATE INDEX/i.test(sql)) return { rows: [] };
-      if ((m = sql.match(/SELECT data FROM (\w+)/i))) {
-        return { rows: [...tableFor(m[1]).values()].map((r) => ({ data: r.data })) };
+      if ((m = sql.match(/SELECT data FROM (\w+)(?:\s+WHERE\s+(org_id|id)\s*=\s*\$1)?/i))) {
+        let vals = [...tableFor(m[1]).values()];
+        if (m[2] === 'org_id') vals = vals.filter((r) => r.org_id === params[0]);
+        else if (m[2] === 'id') vals = vals.filter((r) => r.id === params[0]);
+        return { rows: vals.map((r) => ({ data: r.data })) };
       }
       if ((m = sql.match(/INSERT INTO (\w+)/i))) {
         const [id, org_id, dataStr] = params;
@@ -79,4 +82,22 @@ test('postgres backend: byId + audit round-trip', async () => {
   assert.equal(log.length, 1);
   assert.equal(log[0].userName, 'Chris');
   assert.equal(log[0].action, 'create');
+});
+
+test('postgres backend: async query helpers read straight from the DB (read-your-writes)', async () => {
+  const pool = fakePgPool();
+  await store.init({ pool });
+  const o1 = store.insert('organizations', { name: 'Org One' });
+  const o2 = store.insert('organizations', { name: 'Org Two' });
+  store.insert('accounts', { orgId: o1.id, code: '4000', name: 'Sales' });
+  store.insert('accounts', { orgId: o1.id, code: '5000', name: 'COGS' });
+  store.insert('accounts', { orgId: o2.id, code: '4000', name: 'Other Sales' });
+
+  // queryByOrg flushes the write queue first, so just-written rows are visible.
+  const a1 = await store.queryByOrg('accounts', o1.id);
+  assert.deepEqual(a1.map((a) => a.code).sort(), ['4000', '5000']);
+  const a2 = await store.queryByOrg('accounts', o2.id);
+  assert.equal(a2.length, 1);
+  assert.equal((await store.queryById('organizations', o1.id)).name, 'Org One');
+  assert.equal((await store.queryAll('organizations')).length, 2);
 });
