@@ -717,14 +717,20 @@ app.delete('/api/orgs/:orgId/expense-claims/:id', auth.requireAuth, auth.require
 });
 
 // ===================== PRODUCTS & SERVICES (item catalog) =====================
-app.get('/api/orgs/:orgId/items', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const accById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
-  const method = store.byId('organizations', req.orgId).stockMethod || 'avco';
-  const items = store.filter('items', (x) => x.orgId === req.orgId).sort((a, b) => a.name.localeCompare(b.name))
+app.get('/api/orgs/:orgId/items', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const accById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
+  const org = await store.queryById('organizations', req.orgId);
+  const method = (org && org.stockMethod) || 'avco';
+  const movesByItem = new Map();
+  for (const m of await store.queryByOrg('stockMovements', req.orgId)) {
+    if (!movesByItem.has(m.itemId)) movesByItem.set(m.itemId, []);
+    movesByItem.get(m.itemId).push(m);
+  }
+  const items = (await store.queryByOrg('items', req.orgId)).sort((a, b) => a.name.localeCompare(b.name))
     .map((i) => {
       const base = { ...i, accountName: accById.get(i.saleAccountId)?.name };
       if (i.trackQty) {
-        const moves = store.filter('stockMovements', (m) => m.itemId === i.id);
+        const moves = movesByItem.get(i.id) || [];
         const v = inventory.valuation(moves, method);
         return { ...base, qtyOnHand: v.qty, stockValue: v.value, avgCost: v.avgCost };
       }
@@ -732,7 +738,7 @@ app.get('/api/orgs/:orgId/items', auth.requireAuth, auth.requireOrg, (req, res) 
     });
   const stockTotal = inventory.round2(items.filter((i) => i.trackQty).reduce((s, i) => s + (i.stockValue || 0), 0));
   res.json({ items, method, stockTotal });
-});
+}));
 app.post('/api/orgs/:orgId/items', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { code, name, description, salePrice, saleAccountId, taxRateId, trackQty, qtyOnHand, reorderLevel } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required.' });
