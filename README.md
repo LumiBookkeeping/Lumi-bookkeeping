@@ -116,3 +116,4 @@ This is a functional MVP, not yet production-hardened. Natural next steps:
 4. **Two-factor auth, password reset by email, and finer-grained permissions.**
 5. **Recurring invoices, partial payments, and credit notes.**
 6. **More automated tests** across the API routes, not just the accounting engine.
+# Lumi-bookkeeping
