@@ -110,10 +110,10 @@ app.get('/api/orgs/:orgId/export', auth.requireAuth, auth.requireOrg, (req, res)
 });
 
 // Company details (per org) — clients can edit their own; appear on invoices.
-app.get('/api/orgs/:orgId/company', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const o = store.byId('organizations', req.orgId);
+app.get('/api/orgs/:orgId/company', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const o = await store.queryById('organizations', req.orgId);
   res.json({ company: { name: o.name, address: o.companyAddress || '', vatNo: o.companyVatNo || '', regNo: o.companyRegNo || '', email: o.companyEmail || '', phone: o.companyPhone || '', bankDetails: o.bankDetails || '', paymentTermsDays: o.paymentTermsDays || 30, invoicePrefix: o.invoicePrefix || 'INV-', billPrefix: o.billPrefix || 'BILL-', quotePrefix: o.quotePrefix || 'QUO-', poPrefix: o.poPrefix || 'PO-', stockMethod: o.stockMethod || 'avco' } });
-});
+}));
 app.put('/api/orgs/:orgId/company', auth.requireAuth, auth.requireOrg, (req, res) => {
   const patch = {};
   for (const f of ['companyAddress', 'companyVatNo', 'companyRegNo', 'companyEmail', 'companyPhone', 'bankDetails', 'invoicePrefix', 'billPrefix', 'quotePrefix', 'poPrefix']) if (req.body[f] != null) patch[f] = String(req.body[f]);
@@ -435,16 +435,16 @@ app.get('/api/orgs/:orgId/audit', auth.requireAuth, auth.requireOrg, (req, res) 
 });
 
 // ===================== CLIENT QUERIES =====================
-app.get('/api/orgs/:orgId/queries', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const txnById = new Map(store.filter('transactions', (t) => t.orgId === req.orgId).map((t) => [t.id, t]));
-  const list = store.filter('queries', (q) => q.orgId === req.orgId)
+app.get('/api/orgs/:orgId/queries', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const txnById = new Map((await store.queryByOrg('transactions', req.orgId)).map((t) => [t.id, t]));
+  const list = (await store.queryByOrg('queries', req.orgId))
     .sort((a, b) => (a.askedAt < b.askedAt ? 1 : -1))
     .map((q) => {
       const t = q.transactionId ? txnById.get(q.transactionId) : null;
       return { ...q, txn: t ? { id: t.id, date: t.date, description: t.description } : null };
     });
   res.json({ queries: list, openCount: list.filter((q) => q.status === 'open').length });
-});
+}));
 
 app.post('/api/orgs/:orgId/queries', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { transactionId, question } = req.body;
