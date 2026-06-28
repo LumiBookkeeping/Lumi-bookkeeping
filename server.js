@@ -660,12 +660,12 @@ app.get('/api/orgs/:orgId/reports/balance-sheet', auth.requireAuth, auth.require
 });
 
 // ===================== EXPENSE CLAIMS =====================
-app.get('/api/orgs/:orgId/expense-claims', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const accById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
-  const claims = store.filter('expenseClaims', (x) => x.orgId === req.orgId).sort((a, b) => (a.date < b.date ? 1 : -1))
+app.get('/api/orgs/:orgId/expense-claims', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const accById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
+  const claims = (await store.queryByOrg('expenseClaims', req.orgId)).sort((a, b) => (a.date < b.date ? 1 : -1))
     .map((x) => ({ ...x, accountName: accById.get(x.accountId)?.name }));
   res.json({ claims, pending: claims.filter((c) => c.status === 'submitted').length });
-});
+}));
 app.post('/api/orgs/:orgId/expense-claims', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { claimant, date, description, accountId, amount, taxRateId } = req.body;
   if (!date || !description) return res.status(400).json({ error: 'Date and description are required.' });
@@ -1086,16 +1086,16 @@ function advanceDate(dateStr, frequency) {
   return d.toISOString().slice(0, 10);
 }
 
-app.get('/api/orgs/:orgId/recurring', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const contactsById = new Map(store.filter('contacts', (x) => x.orgId === req.orgId).map((x) => [x.id, x]));
-  const accById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
+app.get('/api/orgs/:orgId/recurring', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const contactsById = new Map((await store.queryByOrg('contacts', req.orgId)).map((x) => [x.id, x]));
+  const accById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
   const today = new Date().toISOString().slice(0, 10);
-  const list = store.filter('recurring', (r) => r.orgId === req.orgId).map((r) => ({
+  const list = (await store.queryByOrg('recurring', req.orgId)).map((r) => ({
     ...r, contactName: contactsById.get(r.contactId)?.name || '—', accountName: accById.get(r.accountId)?.name || '',
     due: r.active && r.nextDate <= today,
   }));
   res.json({ recurring: list, dueCount: list.filter((r) => r.due).length });
-});
+}));
 
 app.post('/api/orgs/:orgId/recurring', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { type, contactId, description, accountId, amount, taxRateId, frequency, nextDate } = req.body;
@@ -1281,14 +1281,14 @@ app.post('/api/orgs/:orgId/opening-balances', auth.requireAuth, auth.requireOrg,
 });
 
 // ===================== FIXED ASSETS & DEPRECIATION =====================
-app.get('/api/orgs/:orgId/fixed-assets', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const accById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
-  const assets = store.filter('fixedAssets', (x) => x.orgId === req.orgId).map((a) => {
+app.get('/api/orgs/:orgId/fixed-assets', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const accById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
+  const assets = (await store.queryByOrg('fixedAssets', req.orgId)).map((a) => {
     const monthly = a.usefulLifeYears > 0 ? acct.round2(a.cost / (a.usefulLifeYears * 12)) : 0;
     return { ...a, monthly, accountName: accById.get(a.assetAccountId)?.name, netBookValue: acct.round2(a.cost - (a.accumulated || 0)) };
   });
   res.json({ assets });
-});
+}));
 
 app.post('/api/orgs/:orgId/fixed-assets', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { name, cost, purchaseDate, usefulLifeYears, assetAccountId } = req.body;
