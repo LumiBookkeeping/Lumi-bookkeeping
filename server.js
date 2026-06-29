@@ -868,15 +868,15 @@ function accountByCode(orgId, code) {
 }
 
 // ===================== INVOICES & BILLS =====================
-app.get('/api/orgs/:orgId/invoices', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/invoices', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const type = req.query.type; // 'invoice' | 'bill' | undefined
-  let invoices = store.filter('invoices', (x) => x.orgId === req.orgId && (!type || x.type === type));
-  const contactsById = new Map(store.filter('contacts', (c) => c.orgId === req.orgId).map((c) => [c.id, c]));
-  invoices = invoices
+  const contactsById = new Map((await store.queryByOrg('contacts', req.orgId)).map((c) => [c.id, c]));
+  const invoices = (await store.queryByOrg('invoices', req.orgId))
+    .filter((x) => !type || x.type === type)
     .sort((a, b) => (a.issueDate < b.issueDate ? 1 : -1))
     .map((inv) => ({ ...inv, contactName: contactsById.get(inv.contactId)?.name || '—' }));
   res.json({ invoices });
-});
+}));
 
 app.post('/api/orgs/:orgId/invoices', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { type, contactId, number, issueDate, dueDate, lines } = req.body;
