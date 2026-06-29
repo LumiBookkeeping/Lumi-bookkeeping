@@ -134,15 +134,15 @@ app.post('/api/orgs/:orgId/logo', auth.requireAuth, auth.requireOrg, upload.sing
   store.update('organizations', req.orgId, { logoFile: req.file.filename, logoMime: req.file.mimetype });
   res.json({ ok: true });
 });
-app.get('/api/orgs/:orgId/logo', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const org = store.byId('organizations', req.orgId);
+app.get('/api/orgs/:orgId/logo', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const org = await store.queryById('organizations', req.orgId);
   if (!org.logoFile) return res.status(404).json({ error: 'No logo.' });
   const fp = path.join(UPLOAD_DIR, org.logoFile);
   if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Missing.' });
   res.setHeader('Content-Type', org.logoMime || 'image/png');
   res.setHeader('Cache-Control', 'no-cache');
   fs.createReadStream(fp).pipe(res);
-});
+}));
 app.delete('/api/orgs/:orgId/logo', auth.requireAuth, auth.requireOrg, (req, res) => {
   const org = store.byId('organizations', req.orgId);
   if (org.logoFile) { try { fs.unlinkSync(path.join(UPLOAD_DIR, org.logoFile)); } catch {} }
@@ -629,17 +629,18 @@ app.get('/api/orgs/:orgId/search', auth.requireAuth, auth.requireOrg, (req, res)
 });
 
 // ===================== ACCOUNT LEDGER (drill-down / general ledger) =====================
-app.get('/api/orgs/:orgId/accounts/:accountId/ledger', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const account = store.find('accounts', (a) => a.id === req.params.accountId && a.orgId === req.orgId);
-  if (!account) return res.status(404).json({ error: 'Account not found.' });
+app.get('/api/orgs/:orgId/accounts/:accountId/ledger', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const account = await store.queryById('accounts', req.params.accountId);
+  if (!account || account.orgId !== req.orgId) return res.status(404).json({ error: 'Account not found.' });
   const from = req.query.from || null;
   const to = req.query.to || null;
   const debitNormal = account.type === 'asset' || account.type === 'expense';
-  const txns = store.filter('transactions', (t) => t.orgId === req.orgId && t.status !== 'void');
+  const txns = (await store.queryByOrg('transactions', req.orgId)).filter((t) => t.status !== 'void');
   const txnById = new Map(txns.map((t) => [t.id, t]));
   const entries = [];
   let opening = 0;
-  for (const l of store.filter('lines', (x) => x.accountId === account.id)) {
+  for (const l of await store.queryOrgLines(req.orgId)) {
+    if (l.accountId !== account.id) continue;
     const t = txnById.get(l.transactionId);
     if (!t) continue;
     const signed = debitNormal ? Number(l.debit || 0) - Number(l.credit || 0) : Number(l.credit || 0) - Number(l.debit || 0);
@@ -652,7 +653,7 @@ app.get('/api/orgs/:orgId/accounts/:accountId/ledger', auth.requireAuth, auth.re
   let bal = opening;
   const rows = entries.map((e) => { bal = acct.round2(bal + e.signed); return { ...e, balance: bal }; });
   res.json({ account: { id: account.id, code: account.code, name: account.name, type: account.type }, openingBalance: opening, rows, closingBalance: acct.round2(bal) });
-});
+}));
 
 // ===================== REPORTS =====================
 app.get('/api/orgs/:orgId/reports/trial-balance', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
@@ -1162,11 +1163,11 @@ app.post('/api/orgs/:orgId/recurring/generate', auth.requireAuth, auth.requireOr
 });
 
 // AR / AP aging — open (approved, unpaid) items bucketed by overdue age.
-app.get('/api/orgs/:orgId/reports/aging', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/aging', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const type = req.query.type === 'payable' ? 'bill' : 'invoice';
   const asOf = req.query.asOf || new Date().toISOString().slice(0, 10);
-  const contactsById = new Map(store.filter('contacts', (c) => c.orgId === req.orgId).map((c) => [c.id, c]));
-  const open = store.filter('invoices', (x) => x.orgId === req.orgId && x.type === type && x.status === 'awaiting_payment');
+  const contactsById = new Map((await store.queryByOrg('contacts', req.orgId)).map((c) => [c.id, c]));
+  const open = (await store.queryByOrg('invoices', req.orgId)).filter((x) => x.type === type && x.status === 'awaiting_payment');
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0 };
   const rows = open.map((inv) => {
     const remaining = acct.round2(inv.total - (inv.amountPaid || 0));
@@ -1179,7 +1180,7 @@ app.get('/api/orgs/:orgId/reports/aging', auth.requireAuth, auth.requireOrg, (re
   const total = rows.reduce((s, r) => s + r.amount, 0);
   for (const k of Object.keys(buckets)) buckets[k] = acct.round2(buckets[k]);
   res.json({ type, asOf, rows, buckets, total: acct.round2(total) });
-});
+}));
 
 // ===================== VAT RETURN =====================
 app.get('/api/orgs/:orgId/reports/vat', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
