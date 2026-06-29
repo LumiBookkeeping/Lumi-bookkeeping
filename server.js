@@ -200,9 +200,12 @@ app.post('/api/orgs', auth.requireAuth, (req, res) => {
 });
 
 // ===================== CHART OF ACCOUNTS =====================
-app.get('/api/orgs/:orgId/accounts', auth.requireAuth, auth.requireOrg, (req, res) => {
-  res.json({ accounts: acct.chartOfAccounts(req.orgId) });
-});
+app.get('/api/orgs/:orgId/accounts', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const accounts = (await store.queryByOrg('accounts', req.orgId))
+    .filter((a) => !a.archived)
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  res.json({ accounts });
+}));
 
 app.post('/api/orgs/:orgId/accounts', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { code, name, type } = req.body;
@@ -216,23 +219,32 @@ app.post('/api/orgs/:orgId/accounts', auth.requireAuth, auth.requireOrg, (req, r
 });
 
 // ===================== TRANSACTIONS =====================
-app.get('/api/orgs/:orgId/transactions', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const txns = store
-    .filter('transactions', (t) => t.orgId === req.orgId)
+app.get('/api/orgs/:orgId/transactions', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const txns = (await store.queryByOrg('transactions', req.orgId))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  const accountsById = new Map(store.filter('accounts', (a) => a.orgId === req.orgId).map((a) => [a.id, a]));
+  const accountsById = new Map((await store.queryByOrg('accounts', req.orgId)).map((a) => [a.id, a]));
+  const linesByTxn = new Map();
+  for (const l of await store.queryOrgLines(req.orgId)) {
+    if (!linesByTxn.has(l.transactionId)) linesByTxn.set(l.transactionId, []);
+    linesByTxn.get(l.transactionId).push(l);
+  }
+  const attsByTxn = new Map();
+  for (const a of await store.queryByOrg('attachments', req.orgId)) {
+    if (!attsByTxn.has(a.transactionId)) attsByTxn.set(a.transactionId, []);
+    attsByTxn.get(a.transactionId).push(a);
+  }
   const out = txns.map((t) => {
-    const lines = store.filter('lines', (l) => l.transactionId === t.id).map((l) => ({
+    const lines = (linesByTxn.get(t.id) || []).map((l) => ({
       ...l,
       accountCode: accountsById.get(l.accountId)?.code,
       accountName: accountsById.get(l.accountId)?.name,
     }));
-    const attachments = store.filter('attachments', (a) => a.transactionId === t.id);
+    const attachments = attsByTxn.get(t.id) || [];
     const total = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
     return { ...t, lines, attachments, total: acct.round2(total) };
   });
   res.json({ transactions: out });
-});
+}));
 
 app.post('/api/orgs/:orgId/transactions', auth.requireAuth, auth.requireOrg, (req, res) => {
   const { date, description, reference, lines } = req.body;
@@ -426,13 +438,12 @@ app.get('/api/orgs/:orgId/attachments/:attId', auth.requireAuth, auth.requireOrg
 });
 
 // ===================== AUDIT TRAIL =====================
-app.get('/api/orgs/:orgId/audit', auth.requireAuth, auth.requireOrg, (req, res) => {
-  const entries = store
-    .filter('auditLog', (x) => x.orgId === req.orgId)
+app.get('/api/orgs/:orgId/audit', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
+  const entries = (await store.queryByOrg('auditLog', req.orgId))
     .sort((a, b) => (a.at < b.at ? 1 : -1))
     .slice(0, 200);
   res.json({ entries });
-});
+}));
 
 // ===================== CLIENT QUERIES =====================
 app.get('/api/orgs/:orgId/queries', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
