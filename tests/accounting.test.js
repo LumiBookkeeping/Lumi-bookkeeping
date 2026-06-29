@@ -110,4 +110,18 @@ test('isLocked compares dates correctly', () => {
   assert.strictEqual(acct.isLocked({ lockDate: null }, '2026-01-15'), false);
 });
 
+test('injected ledger produces identical reports to the orgId path', async () => {
+  reset();
+  const { org, acc } = makeOrg();
+  post(org.id, '2026-01-05', [[acc['1000'].id, 10000, 0], [acc['3000'].id, 0, 10000]]);
+  post(org.id, '2026-02-28', [[acc['1000'].id, 4000, 0], [acc['4000'].id, 0, 4000]]);
+  post(org.id, '2026-02-01', [[acc['6000'].id, 1500, 0], [acc['1000'].id, 0, 1500]]);
+  post(org.id, '2026-03-01', [[acc['1000'].id, 999, 0], [acc['4000'].id, 0, 999]], 'void');
+  const ledger = await store.loadLedger(org.id);
+  // The DI seam must be faithful: passing a pre-loaded ledger == passing the orgId.
+  assert.deepStrictEqual(acct.profitAndLoss(ledger, '2026-01-01', '2026-12-31'), acct.profitAndLoss(org.id, '2026-01-01', '2026-12-31'));
+  assert.deepStrictEqual(acct.trialBalance(ledger, '2026-12-31'), acct.trialBalance(org.id, '2026-12-31'));
+  assert.deepStrictEqual(acct.balanceSheet(ledger, '2026-12-31'), acct.balanceSheet(org.id, '2026-12-31'));
+});
+
 test.after(() => { try { fs.rmSync(process.env.LUMI_DATA_DIR, { recursive: true, force: true }); } catch {} });

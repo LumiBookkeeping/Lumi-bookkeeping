@@ -20,6 +20,14 @@ function fakePgPool() {
       let m;
       if ((m = sql.match(/CREATE TABLE IF NOT EXISTS (\w+)/i))) { tableFor(m[1]); return { rows: [] }; }
       if (/^\s*CREATE INDEX/i.test(sql)) return { rows: [] };
+      if (/FROM \w+ l\s+JOIN/i.test(sql)) { // loadLedger: lines JOIN transactions
+        const out = [];
+        for (const l of tableFor('lines').values()) {
+          const t = [...tableFor('transactions').values()].find((x) => x.id === l.data.transactionId);
+          if (t && t.org_id === params[0] && (t.data.status || '') !== 'void') out.push({ line: l.data, txn: t.data });
+        }
+        return { rows: out };
+      }
       if ((m = sql.match(/SELECT data FROM (\w+)(?:\s+WHERE\s+(org_id|id)\s*=\s*\$1)?/i))) {
         let vals = [...tableFor(m[1]).values()];
         if (m[2] === 'org_id') vals = vals.filter((r) => r.org_id === params[0]);
@@ -100,4 +108,25 @@ test('postgres backend: async query helpers read straight from the DB (read-your
   assert.equal(a2.length, 1);
   assert.equal((await store.queryById('organizations', o1.id)).name, 'Org One');
   assert.equal((await store.queryAll('organizations')).length, 2);
+});
+
+test('postgres backend: loadLedger joins lines to transactions, excludes void + archived', async () => {
+  const pool = fakePgPool();
+  await store.init({ pool });
+  const org = store.insert('organizations', { name: 'Co' });
+  const bank = store.insert('accounts', { orgId: org.id, code: '1000', name: 'Bank', type: 'asset' });
+  const sales = store.insert('accounts', { orgId: org.id, code: '4000', name: 'Sales', type: 'income' });
+  store.insert('accounts', { orgId: org.id, code: '9999', name: 'Old', type: 'expense', archived: true });
+  const t1 = store.insert('transactions', { orgId: org.id, date: '2026-02-01', description: 'Sale', status: 'posted', source: 'manual' });
+  store.insert('lines', { transactionId: t1.id, accountId: bank.id, debit: 100, credit: 0 });
+  store.insert('lines', { transactionId: t1.id, accountId: sales.id, debit: 0, credit: 100 });
+  const tv = store.insert('transactions', { orgId: org.id, date: '2026-02-02', description: 'Void', status: 'void', source: 'manual' });
+  store.insert('lines', { transactionId: tv.id, accountId: bank.id, debit: 999, credit: 0 });
+  await store.flush();
+
+  await store.init({ pool }); // rehydrate, as a fresh boot would
+  const ledger = await store.loadLedger(org.id);
+  assert.deepEqual(ledger.accounts.map((a) => a.code), ['1000', '4000'], 'archived account excluded, sorted by code');
+  assert.equal(ledger.lines.length, 2, 'void transaction lines excluded');
+  assert.ok(ledger.lines.every((l) => l.date === '2026-02-01'), 'lines carry their transaction date');
 });

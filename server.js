@@ -541,16 +541,17 @@ app.put('/api/orgs/:orgId/budgets', auth.requireAuth, auth.requireOrg, (req, res
 });
 
 // Budget vs actual over a period.
-app.get('/api/orgs/:orgId/reports/budget', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/budget', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const year = new Date().toISOString().slice(0, 4);
   const from = req.query.from || `${year}-01-01`;
   const to = req.query.to || new Date().toISOString().slice(0, 10);
   const months = Math.max(1, (new Date(to).getFullYear() * 12 + new Date(to).getMonth()) - (new Date(from).getFullYear() * 12 + new Date(from).getMonth()) + 1);
-  const pl = acct.profitAndLoss(req.orgId, from, to);
+  const ledger = await store.loadLedger(req.orgId);
+  const pl = acct.profitAndLoss(ledger, from, to);
   const actualByAcc = new Map();
   [...pl.income, ...pl.expenses].forEach((r) => actualByAcc.set(r.accountId, r.amount));
-  const budgets = new Map(store.filter('budgets', (b) => b.orgId === req.orgId).map((b) => [b.accountId, b.monthlyAmount]));
-  const accounts = acct.chartOfAccounts(req.orgId).filter((a) => a.type === 'income' || a.type === 'expense');
+  const budgets = new Map((await store.queryByOrg('budgets', req.orgId)).map((b) => [b.accountId, b.monthlyAmount]));
+  const accounts = ledger.accounts.filter((a) => a.type === 'income' || a.type === 'expense');
   const rows = accounts.map((a) => {
     const budget = acct.round2((budgets.get(a.id) || 0) * months);
     const actual = acct.round2(actualByAcc.get(a.id) || 0);
@@ -558,7 +559,7 @@ app.get('/api/orgs/:orgId/reports/budget', auth.requireAuth, auth.requireOrg, (r
     return { accountId: a.id, code: a.code, name: a.name, type: a.type, monthly: budgets.get(a.id) || 0, budget, actual, variance };
   });
   res.json({ from, to, months, rows });
-});
+}));
 
 // ===================== TRACKING CATEGORIES =====================
 app.get('/api/orgs/:orgId/tracking', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
@@ -643,21 +644,21 @@ app.get('/api/orgs/:orgId/accounts/:accountId/ledger', auth.requireAuth, auth.re
 });
 
 // ===================== REPORTS =====================
-app.get('/api/orgs/:orgId/reports/trial-balance', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/trial-balance', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const asOf = req.query.asOf || new Date().toISOString().slice(0, 10);
-  res.json(acct.trialBalance(req.orgId, asOf));
-});
+  res.json(acct.trialBalance(await store.loadLedger(req.orgId), asOf));
+}));
 
-app.get('/api/orgs/:orgId/reports/profit-loss', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/profit-loss', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const from = req.query.from || '0000-01-01';
   const to = req.query.to || new Date().toISOString().slice(0, 10);
-  res.json(acct.profitAndLoss(req.orgId, from, to));
-});
+  res.json(acct.profitAndLoss(await store.loadLedger(req.orgId), from, to));
+}));
 
-app.get('/api/orgs/:orgId/reports/balance-sheet', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/balance-sheet', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const asOf = req.query.asOf || new Date().toISOString().slice(0, 10);
-  res.json(acct.balanceSheet(req.orgId, asOf));
-});
+  res.json(acct.balanceSheet(await store.loadLedger(req.orgId), asOf));
+}));
 
 // ===================== EXPENSE CLAIMS =====================
 app.get('/api/orgs/:orgId/expense-claims', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
@@ -1170,11 +1171,11 @@ app.get('/api/orgs/:orgId/reports/aging', auth.requireAuth, auth.requireOrg, (re
 });
 
 // ===================== VAT RETURN =====================
-app.get('/api/orgs/:orgId/reports/vat', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/reports/vat', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const to = req.query.to || new Date().toISOString().slice(0, 10);
   const from = req.query.from || '0000-01-01';
-  res.json(acct.vatReturn(req.orgId, from, to));
-});
+  res.json(acct.vatReturn(await store.loadLedger(req.orgId), from, to));
+}));
 
 // ===================== ORG SETTINGS (VAT scheme) =====================
 app.put('/api/orgs/:orgId/settings', auth.requireAuth, auth.requireOrg, (req, res) => {
@@ -1518,12 +1519,13 @@ app.delete('/api/orgs/:orgId/reports/cashflow/scenarios/:id', auth.requireAuth, 
 });
 
 // ===================== DASHBOARD SUMMARY (live figures + action list) =====================
-app.get('/api/orgs/:orgId/dashboard', auth.requireAuth, auth.requireOrg, (req, res) => {
+app.get('/api/orgs/:orgId/dashboard', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const year = today.slice(0, 4);
-  const plYear = acct.profitAndLoss(req.orgId, `${year}-01-01`, `${year}-12-31`);
+  const ledger = await store.loadLedger(req.orgId);
+  const plYear = acct.profitAndLoss(ledger, `${year}-01-01`, `${year}-12-31`);
   const ct = acct.corporationTaxEstimate(plYear.netProfit);
-  const vat = acct.vatPosition(req.orgId, today);
+  const vat = acct.vatPosition(ledger, today);
 
   // Action items
   const inv = store.filter('invoices', (x) => x.orgId === req.orgId);
@@ -1574,7 +1576,7 @@ app.get('/api/orgs/:orgId/dashboard', auth.requireAuth, auth.requireOrg, (req, r
   for (let i = 5; i >= 0; i--) {
     const s = new Date(base.getFullYear(), base.getMonth() - i, 1);
     const e = new Date(base.getFullYear(), base.getMonth() - i + 1, 0);
-    const p = acct.profitAndLoss(req.orgId, s.toISOString().slice(0, 10), e.toISOString().slice(0, 10));
+    const p = acct.profitAndLoss(ledger, s.toISOString().slice(0, 10), e.toISOString().slice(0, 10));
     trend.push({ label: s.toLocaleString('en-GB', { month: 'short' }), income: p.totalIncome, expense: p.totalExpense });
   }
   const openQueries = store.filter('queries', (q) => q.orgId === req.orgId && q.status === 'open').length;
@@ -1585,7 +1587,7 @@ app.get('/api/orgs/:orgId/dashboard', auth.requireAuth, auth.requireOrg, (req, r
     vatOwed: vat.owed,
   };
   res.json({ netProfitYtd: plYear.netProfit, corporationTax: ct, vat, actions, tasks, bankFreshness, trend, checks });
-});
+}));
 
 // ===================== CATEGORISATION RULES =====================
 app.get('/api/orgs/:orgId/rules', auth.requireAuth, auth.requireOrg, wrap(async (req, res) => {
